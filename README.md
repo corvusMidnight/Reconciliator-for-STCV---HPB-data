@@ -1,7 +1,7 @@
 # Reconciliator for STCV-HPB data
 
 The following program is built to reconcile data from an sqlite STVC database with data from the online HPB database.
-The sqlite database can be downloaded from the following [GitHub repository] (https://github.com/TomDeneire/InformationScience/tree/main/course/data).
+The sqlite database can be downloaded from the following [GitHub repository](https://github.com/TomDeneire/InformationScience/tree/main/course/data).
 
 
 
