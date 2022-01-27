@@ -1,3 +1,5 @@
+#Import packages
+
 import requests
 import time
 import urllib
@@ -19,12 +21,25 @@ from urllib.request import urlopen
 from urllib.error import HTTPError, URLError
 
 
+#Additional function
+
+def clean(string: str) -> str:
+    
+    #Clean input string and URL encode
+    
+    #Note: the function does NOT lowercase the string! The reason is that upon inspecting the MARC21 code, author appeared
+    #      to be capitalized for the HPB database
+    
+    string = urllib.parse.quote(string)
+    return string
+    
+#Establishing connection with the local sqlite database
 
 conn = sqlite3.connect('stcv.sqlite')
 
 def reconciliator(gen_conn):
 
-#Function that takes an squilte3 file:
+#Function that takes an squilte3 connection:
 #Performs a query of 100 book titles from an stcv database and collects title, author, and yop inside a dictionary
 
 #Through a HPB’s SRU/CQL query, it reads  the results from the website in MARC21
@@ -37,7 +52,12 @@ def reconciliator(gen_conn):
 #and compares them to the searched author and yop
 
 #Note: there is not comparison for title search: this comparison is available only for the second query. No titles were matching
-#due to the diffences in spelling
+#      due to the diffences in spelling
+
+#Note: U have bettered the code to include author and yop for each record in the first query to asses the quality of match
+#      for each match. This causes 14 records to not be match. If that part of the code is erased, the code will match all
+#      the records. Between a program that returns 84 matches with additional info about the match quality and one that returns
+#      100 matches with no information about any of those matches, I have chosen the former.
     
     
     conn = gen_conn
@@ -182,22 +202,57 @@ def reconciliator(gen_conn):
                     print('The above match is not a good match!', '\n'*3 )
 
 
+        #The exception triggers when one of the values (not tile! is 0)
+        
         except Exception:
-            print('(Could not find anything. Querying the databse per title...)', '\n'*2)
-            HPB_record_counter = 0
-            new_url = f"https://sru.gbv.de/hpb?version=2.0&operation=searchRetrieve&query=pica.tit={clean(title)}&startRecord=1&maximumRecords=10"
-            query = etree.parse(urllib.request.urlopen(new_url))
-            num_records = int(root.find(".//zs:numberOfRecords", namespaces=ns).text)
-            for r, record in enumerate(records):
-                HPB_record_counter += 1
-                datafield_tag35 = record.find(".//slim:datafield[@tag='035']", namespaces=ns)
-                datafield_tag35_a = datafield_tag35.find('slim:*[@code="a"]', namespaces=ns)
-                datafield_tag245 = record.find(".//slim:datafield[@tag='245']", namespaces=ns)
-                datafield_tag245_a = datafield_tag245.find('slim:*[@code="a"]', namespaces=ns)
-                print("- The STCV identifier", key, "corresponds to the following HPB identifier", str(int(r)+1), "=>",
-                        datafield_tag35_a.text, ", which is record match number", HPB_record_counter,
-                        "for this c:stcv code.", '\n'*2,
-                        f"1. We looked for this title: {title}", '\n'*2,
-                        f"   And got this title back: {datafield_tag245_a.text}", '\n'*2,
-                        f"This info can be retrieved at the following url {url}",
-                        '\n'*2)
+            
+            #Try with querying by title only
+            
+            try:
+                print('(Could not find anything. Querying the databse per title...)', '\n'*2)
+                
+                HPB_record_counter = 0 #Counter used to keep track of the record match number (max#New url: accordint to imumRecords=10)
+                
+                #New url: accordint to HPB index, title are searched with pica.tit (or db.tit)
+                
+                new_url = f"https://sru.gbv.de/hpb?version=2.0&operation=searchRetrieve&query=pica.tit={clean(title)}&startRecord=1&maximumRecords=10"
+                new_query = etree.parse(urllib.request.urlopen(new_url))
+                root = new_query
+                
+                #Querying all the records
+                new_records = root.findall(".//zs:record", namespaces=ns)
+                
+                #Iterating over each record
+                for r, record in enumerate(new_records):
+                    HPB_record_counter += 1
+                    
+                    #datafield_tag35: HPB identifier
+                    datafield_tag35 = record.find(".//slim:datafield[@tag='035']", namespaces=ns)
+                    datafield_tag35_a = datafield_tag35.find('slim:*[@code="a"]', namespaces=ns)
+                    
+                    #datafield_tag245: title
+                    datafield_tag245 = record.find(".//slim:datafield[@tag='245']", namespaces=ns)
+                    datafield_tag245_a = datafield_tag245.find('slim:*[@code="a"]', namespaces=ns)
+                    
+                    #Record printing
+                    print("- The STCV identifier", key, "corresponds to the following HPB identifier", str(int(r)+1), "=>",
+                            datafield_tag35_a.text, ", which is record match number", HPB_record_counter,
+                            "for this c:stcv code.", '\n'*2,
+                          
+                            #Title comparison
+                            f"1. We looked for this title: {title}", '\n'*2,
+                            f"   And got this title back: {datafield_tag245_a.text[0:50]}", '\n'*2,
+                          
+                            #url
+                            f"This info can be retrieved at the following url {new_url}",
+                            '\n'*2)
+                #If the query founds no record...
+                
+                if len(new_records)<1:
+                    print('Stop: This also failed. Sorry, we really could not match your record', '\n'*2)
+                    
+                    #I have trie to add further code to query by author, but it does not find anything and causes the last
+                    #exception to trigger
+                    
+            except Exception:
+                print('WARNING: Fatal error in our query!')
