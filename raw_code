@@ -1,0 +1,283 @@
+#Import packages
+
+import requests
+import time
+import urllib
+from lxml import etree
+import os
+import sqlite3
+import urllib.parse
+import urllib.request
+import lxml
+import urllib.error
+import lxml.html
+from lxml import etree
+from urllib.request import urlopen
+from IPython.core.display import display, HTML
+import json
+import sys
+from urllib.parse import quote
+from urllib.request import urlopen
+from urllib.error import HTTPError, URLError
+from string import punctuation
+
+#Additional function
+
+def clean_and_parse(string: str) -> str:
+    
+    #Function that cleans (strip + casefold) and parses the input string
+    
+    for p in punctuation:
+        
+        string=string.replace(p, '')
+        
+    string = string.casefold().strip() 
+    
+    string = urllib.parse.quote(string)
+    
+    #Returns a string that can be readily inserted inside an SRU for querying
+    
+    return string 
+    
+#Establishing connection with the local sqlite database
+
+conn = sqlite3.connect('stcv.sqlite')
+
+def reconciliator(gen_conn):
+
+#Function that takes an squilte3 connection:
+#Performs a query of 100 book titles from an stcv database and collects title, author, and yop inside a dictionary
+
+#Through a HPB’s SRU/CQL query, it reads  the results from the website in MARC21
+
+
+#Executes two queries:
+#If author, title, and yop are available inside the stcv database, uses all of them to return the first 10 matches
+
+#If some of the values (e.g., only 13 out of the 100 records have a missing value, and the exception query triggers
+#only in that case) are missing, queries only by title
+
+
+
+#It does not return an object: it prints out the matches for each c:stcv with HPB, who the author is for that record. what's the year of publication,
+#and compares them to the searched author and yop
+
+#Note: there is not comparison for title search: an approximative comparison is available only for the second query. No titles were identical
+#      due to the diffences in spelling
+
+#Note: I have bettered the code to include author and yop for each record in the first query to asses the quality of match
+#      for each match. However, the comparison has its limitations: some authors and yop are different just because they
+#      two catalogues report them in a different manner or because some extra character are added within the HPB tag
+    
+    
+    conn = gen_conn
+    c = conn.cursor()
+
+    #query first 100 volumes in the stcv database
+
+    query = """
+    SELECT DISTINCT
+        title.cloi as identifier,
+        COUNT(title.cloi) as id_count,
+        author_vw as author_standardized,
+        author_zvwr as author_original,
+        author_zbd as author_dates,
+        corporateauthor_nm as corporateauthor_standardized,
+        corporateauthor_zvwr as corporateauthor_original,
+        title_ti as title_title,
+        title_lg as title_language,
+        collation_fm as format,
+        collation_ka as quires,
+        collation_pg as pages,
+        edition_ed as edition_info,
+        impressum_ju1sv as year1,
+        impressum_ju1ty as year1_type,
+        impressum_ju2sv as year2,
+        impressum_ju2ty as year2_type,
+        impressum_pl as place,
+        impressum_ug as printer,
+        language_lg as language_info,
+        number_nr as fingerprint
+        FROM title
+    LEFT JOIN author on author.cloi = title.cloi
+    LEFT JOIN collation on collation.cloi = title.cloi
+    LEFT JOIN corporateauthor on corporateauthor.cloi = title.cloi
+    LEFT JOIN edition on edition.cloi = title.cloi
+    LEFT JOIN impressum on impressum.cloi = title.cloi
+    LEFT JOIN language on language.cloi = title.cloi
+    LEFT JOIN number on number.cloi = title.cloi
+    GROUP BY identifier
+    HAVING ID_COUNT=2
+    LIMIT 100
+    """
+
+
+    stcv_d = {} #dictionary for final result
+
+
+    #execute query
+    c.execute(query)
+    data = [row for row in c.fetchall()]
+
+    #Append results
+    for row in data:
+        
+        #Appending title, author, and yop to a dictionary having c:stcv
+        
+        stcv_d[row[0]] = [row[7], row[2], row[13]]
+
+    #Close file
+    
+        conn.close()
+    
+    #Tags dictionary for xml query in MARC21
+    
+    ns = {
+    'zs': "http://docs.oasis-open.org/ns/search-ws/sruResponse",
+    'diag': "http://docs.oasis-open.org/ns/search-ws/diagnostic",
+    'slim': "http://www.loc.gov/MARC21/slim",}
+    
+    # HPB MARC21 sru basic url
+
+    HPB = "https://sru.gbv.de/hpb?version=2.0&operation=searchRetrieve&query="    
+    
+    #iterate over metadata dictionary
+    
+    for key, value in stcv_d.items():
+        
+        title = value[0] #Obtain title
+        author = value[1] #Obtain author
+        year = value[2]  #Obtain year of publication
+        
+        HPB_record_counter = 0 #Counter used to keep track of the record match number (maximumRecords=10)
+        
+        try:
+            print(f'(Querying {key} in the database with our best metadata...)', '\n'*2)
+            
+            #First query: author, title and year, with starting record = 1 and maximumRecords=10
+            
+            url = HPB + f"{clean_and_parse(str(author))}%20\"{clean_and_parse(str(title))}\"%20{year}" + "&startRecord=1&maximumRecords=10"
+            query = etree.parse(urllib.request.urlopen(url)) #Parsing the url into a xml.etree.ElementTree object
+            
+            #Querying the element
+            root = query
+            #Searching only in the current sub-tree (.) for all the <numberOfRecords elements
+            num_records = int(root.find(".//zs:numberOfRecords", namespaces=ns).text)
+            
+            #Searching only in the current sub-tree (.) for all the <records>
+            records = root.findall(".//zs:record", namespaces=ns)
+            
+            if len(records)>0:
+            
+            #Loop over the records to find specific subelements
+            
+                for r, record in enumerate(records):
+                    HPB_record_counter += 1 #Update counter for each record matching a specific c:stvc identifier
+                
+                    #datafield_tag35: HPB identifier
+                    datafield_tag35 = record.find(".//slim:datafield[@tag='035']", namespaces=ns)
+                    datafield_tag35_a = datafield_tag35.find('slim:*[@code="a"]', namespaces=ns)
+                
+                #datafield_tag100: author for that specific record
+                    datafield_tag100 = record.find(".//slim:datafield[@tag='100']", namespaces=ns)
+                    datafield_tag100_a = datafield_tag100.find('slim:*[@code="a"]', namespaces=ns)
+                
+                #datafield_tag264: yop for that specific record
+                    datafield_tag264 = record.find(".//slim:datafield[@tag='264']", namespaces=ns)
+                    datafield_tag264_c = datafield_tag264.find('slim:*[@code="c"]', namespaces=ns)
+                
+                #Pritning matches
+                    print("- The STCV identifier", key, "corresponds to the following HPB identifier", str(int(r)+1), "=>",
+                        datafield_tag35_a.text, ", which is record match number", HPB_record_counter,
+                        "for this c:stcv code.", '\n'*2,
+                #Author retrieved for the record vs. author searched
+                      
+                        "1. The author is: ", datafield_tag100_a.text, '\n'*2,
+                        "   The author you looked for is: ",author, '\n'*2,
+                      
+                #Yop retrieved for the record vs. author searched
+                        "2. The yop is: ", datafield_tag264_c.text, '\n'*2,
+                        "   The yop you looked for is: ", year, '\n'*2,
+                        f"This info can be retrieved at the following url {url}",
+                        '\n')
+                
+                #Goodness of match (note: title never perfectly matches, so it was excluded)
+                
+                #Perfect match (author and yop are the same)
+                    if datafield_tag100_a.text==author and datafield_tag264_c.text==year:
+                        print('The above match is a perfect match!', '\n'*3)
+                #Normal match (at least one between author and yop are the same)
+                    elif datafield_tag264_c.text!=year or datafield_tag100_a.text!=author:
+                        print('The above match is a normal match!', '\n'*3)
+                    
+                #Bad match (at least one between author and yop are the same)
+                    elif datafield_tag264_c.text!=year and datafield_tag100_a.text!=author:
+                        print('The above match is not a good match!', '\n'*3 )
+                    
+            else:
+                
+                #If the query finds no records, try the next query
+
+                    raise Exception
+
+        #The exception triggers when one of the values (not tile! is 0)
+        
+        except Exception:
+            
+            #Try with querying by title only
+            
+            try:
+                print(f'(Could not find anything. Querying {key} in the databse per title...)', '\n'*2)
+                
+                HPB_record_counter = 0 #Counter used to keep track of the record match number (max#New url: accordint to imumRecords=10)
+                
+                #New url: accordint to HPB index, title are searched with pica.tit (or db.tit)
+                
+                new_url = HPB + f"pica.tit={clean_and_parse(str(title))}&startRecord=1&maximumRecords=10"
+                new_query = etree.parse(urllib.request.urlopen(new_url))
+                root = new_query
+                
+                #Querying all the records
+                new_records = root.findall(".//zs:record", namespaces=ns)
+                    
+                    #I have trie to add further code to query by author, but it does not find anything and causes the last
+                    #exception to trigger
+                if len(new_records)>0:
+                        
+                    #Iterating over each record
+                    for r, record in enumerate(new_records):
+                        HPB_record_counter += 1
+                        
+                        #datafield_tag35: HPB identifier
+                        datafield_tag35 = record.find(".//slim:datafield[@tag='035']", namespaces=ns)
+                        datafield_tag35_a = datafield_tag35.find('slim:*[@code="a"]', namespaces=ns)
+                        
+                        #datafield_tag245: title
+                        datafield_tag245 = record.find(".//slim:datafield[@tag='245']", namespaces=ns)
+                        datafield_tag245_a = datafield_tag245.find('slim:*[@code="a"]', namespaces=ns)
+
+                        #Record printing
+                        print("- The STCV identifier", key, "corresponds to the following HPB identifier", str(int(r)+1), "=>",
+                                datafield_tag35_a.text, ", which is record match number", HPB_record_counter,
+                                "for this c:stcv code.", '\n'*2,
+                              
+                                #Title comparison
+                                f"1. We looked for this title: {title}", '\n'*2,
+                                f"   And got this title back: {datafield_tag245_a.text[0:50]}", '\n'*2,
+                              
+                                #url
+                                f"This info can be retrieved at the following url {new_url}",
+                                '\n'*2)
+                        
+                else:
+                    
+                    #If the query finds no records, signal to the user
+                    
+                        print(f'Stop: This also failed. Sorry, we really could not find record {key} in our database', '\n'*2)
+                    
+            except URLerr:
+                
+                print('WARNING: a fatal error occurred')
+                
+                #Final exception (if the code fails)
+                exit(URLerr)
