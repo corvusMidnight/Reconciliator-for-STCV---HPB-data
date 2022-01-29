@@ -6,7 +6,7 @@ The sqlite database can be downloaded from the following [GitHub repository](htt
 
 
 The program takes an squilte3 connection and performs a query of 100 book titles from an stcv database and collects title, author, and yop inside a dictionary
-Through a HPB’s SRU/CQL query, it  executes two queries:
+Through HPB’s SRU/CQL, it executes two queries:
 
 - If author, title, and year of publication are available inside the stcv database, uses all of them to return the first 10 matches
 - If some of the values are missing, queries only by title
