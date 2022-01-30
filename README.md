@@ -7,15 +7,15 @@ The sqlite database can be downloaded from the following [GitHub repository](htt
 
 The program takes an squilte3 connection and performs a query of 100 book titles from an stcv database collecting title, author, and yop inside a dictionary
 
-Then, through the data collected and HPB’s SRU/CQL, it performs two queries in the HPB databasr:
+Then, through the data collected and HPB’s SRU/CQL, it performs two queries in the HPB database:
 
 - If author, title, and year of publication are all available inside the stcv database, uses all of them to return the first 10 matches with their respective identifier
 - If some of the values are missing, queries only by title
 
-It does not return an object: it prints out the matches for each c:stcv with HPB, who the author is for that record. what's the year of publication,
-#and compares them to the searched author and yop
+It does not return an object: it prints out the matches for each c:stcv with HPB, who the author is for that record, what's the year of publication,
+and compares them to the searched author and yop
 
-**Note**: there is not comparison for title search: an approximative comparison is available only for the second query. No titles were identical
+**Note**: there is no comparison for title search: an approximative comparison is available only for the second query. No titles were identical
       due to the diffences in spelling
       
 **Note**: for the reconciliator to work, title must be available
